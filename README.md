@@ -8,7 +8,6 @@
 ## Table of Contents
 
 - [Features](#features)
-- [Why Reavix?](#why-reavix)
 - [Getting Started](#getting-started)
 - [Project Structure](#project-structure)
 - [CLI Commands](#cli-commands)
@@ -19,7 +18,6 @@
 - [Roadmap](#roadmap)
 - [License](#license)
 
----
 
 ## Features
 
@@ -64,7 +62,6 @@ reavix dev
 
 This will start both the backend and React frontend in development mode with hot reload.
 
----
 
 ## Project Structure
 
@@ -81,7 +78,6 @@ my-app/
 └── package.json        # Frontend dependencies
 ```
 
----
 
 ## CLI Commands
 
@@ -94,7 +90,6 @@ reavix audit                  # Security and permission scan
 reavix stats                  # Live resource monitor
 ```
 
----
 
 ## Architecture Overview
 
@@ -118,7 +113,6 @@ reavix stats                  # Live resource monitor
          └─────────────────────────────┘
 ```
 
----
 
 ## Security Model
 
@@ -137,7 +131,6 @@ reavix stats                  # Live resource monitor
 * **Crypto-first**
   Built-in `libsodium` APIs for encryption, hashing, and key management.
 
----
 
 ## Performance & Memory Safety
 
@@ -165,13 +158,11 @@ reavix stats                  # Live resource monitor
 
 You can create reusable plugins to extend Reavix apps in a controlled, sandboxed manner.
 
----
 
 ## 📜 License
 
 Reavix is licensed under the **GDLV3 License**. See [LICENSE](./LICENSE) for details.
 
----
 
 ## 🤝 Contributing
 
@@ -186,13 +177,5 @@ make setup && make dev
 
 > Join the community: [Discord](https://discord.gg/reavix) • [Docs](https://docs.reavix.dev) • [X](https://x.com/reavixframework)
 
----
 
-## Reavix — Build Native. Ship Fast. Stay Secure.
-
-```
-
----
-
-Would you like this exported into a downloadable `README.md` file, or scaffolded with a starter folder structure too?
-```
+##### Reavix — Build Native. Ship Fast. Stay Secure.
