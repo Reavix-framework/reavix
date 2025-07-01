@@ -161,7 +161,7 @@ You can create reusable plugins to extend Reavix apps in a controlled, sandboxed
 
 ## 📜 License
 
-Reavix is licensed under the **GDLV3 License**. See [LICENSE](./LICENSE) for details.
+Reavix is licensed under the **AGPLv3 License**. See [LICENSE](./LICENSE) for details.
 
 
 ## 🤝 Contributing
