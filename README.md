@@ -1,4 +1,3 @@
-
 # Reavix
 
 **Reavix** is a native-first desktop application framework built in **C** with a modern **React-based frontend** (via Vite/TS). Reavix enables secure, high-performance desktop applications. It is designed to give developers powerful tools, native speed, and a seamless full-stack experience.
@@ -18,7 +17,6 @@
 - [Roadmap](#roadmap)
 - [License](#license)
 
-
 ## Features
 
 ### Core Capabilities
@@ -34,8 +32,6 @@
 - **Built-in SQLite & KV Store** — Native storage + encrypted secrets.
 - **Ultra-Fast IPC** — Lock-free shared memory queues and zero-copy JSON.
 
-
-
 ## Getting Started
 
 ### Prerequisites
@@ -50,7 +46,7 @@
 ```bash
 # Install the CLI globally (compiled binary or build from source)
 curl -sSL https://reavix.dev/install.sh | bash
-````
+```
 
 ### Create a New Project
 
@@ -61,7 +57,6 @@ reavix dev
 ```
 
 This will start both the backend and React frontend in development mode with hot reload.
-
 
 ## Project Structure
 
@@ -78,7 +73,6 @@ my-app/
 └── package.json        # Frontend dependencies
 ```
 
-
 ## CLI Commands
 
 ```bash
@@ -89,7 +83,6 @@ reavix run                    # Run built app
 reavix audit                  # Security and permission scan
 reavix stats                  # Live resource monitor
 ```
-
 
 ## Architecture Overview
 
@@ -113,40 +106,36 @@ reavix stats                  # Live resource monitor
          └─────────────────────────────┘
 ```
 
-
 ## Security Model
 
-* **Permission Manifest**
+- **Permission Manifest**
   Declarative JSON config to control access to files, net, system, etc.
 
-* **Sandboxing (Capsicum/Seccomp)**
+- **Sandboxing (Capsicum/Seccomp)**
   Restricts backend execution to only allowed capabilities.
 
-* **Secure IPC**
+- **Secure IPC**
   Shared memory model prevents injection, overwriting, or spoofing.
 
-* **No `eval`, no dynamic `require`**
+- **No `eval`, no dynamic `require`**
   Frontend is sandboxed via CSP and build-time static analysis.
 
-* **Crypto-first**
+- **Crypto-first**
   Built-in `libsodium` APIs for encryption, hashing, and key management.
-
 
 ## Performance & Memory Safety
 
-* **Compile-time Analysis**
+- **Compile-time Analysis**
   Escape analysis, use-after-free detection, bounds checking.
 
-* **Custom Arena Allocators**
+- **Custom Arena Allocators**
   For short-lived memory to minimize fragmentation.
 
-* **Fail-fast Debug Mode**
+- **Fail-fast Debug Mode**
   Guard pages, stack canaries, and memory overwrite detectors.
 
-* **Thread-safe by Default**
+- **Thread-safe by Default**
   Prevents data races in concurrent backend logic.
-
-
 
 ## Plugin System
 
@@ -158,11 +147,9 @@ reavix stats                  # Live resource monitor
 
 You can create reusable plugins to extend Reavix apps in a controlled, sandboxed manner.
 
-
 ## 📜 License
 
 Reavix is licensed under the **AGPLv3 License**. See [LICENSE](./LICENSE) for details.
-
 
 ## 🤝 Contributing
 
@@ -176,6 +163,5 @@ make setup && make dev
 ```
 
 > Join the community: [Discord](https://discord.gg/reavix) • [Docs](https://docs.reavix.dev) • [X](https://x.com/reavixframework)
-
 
 ##### Reavix — Build Native. Ship Fast. Stay Secure.
