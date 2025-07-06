@@ -3,6 +3,7 @@
 #include <string.h>
 #include <pthread.h>
 
+#define MAX_PARAMS 10
 //internal route storage
 typedef struct{
     char* method;
@@ -14,6 +15,7 @@ static RouteEntry* routes = NULL;
 static size_t route_count = 0;
 static size_t route_capacity = 0;
 static pthread_mutex_t route_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 
 
 /**
@@ -468,4 +470,116 @@ void response_free(Response* response){
 
     free(response->_internal.header_names);
     free(response->_internal.header_values);
+}
+
+
+static TrieNode* trie_node_new(const char* segment){
+    TrieNode* node = calloc(1,sizeof(TrieNode));
+    if(!node) return NULL;
+
+    node->segment = strdup(segment);
+    if(!node->segment){
+        return NULL;
+    }
+    return node;
+}
+
+
+static bool trie_insert(TrieNode* root, const char* path, RouteHandler handler){
+    if(!root || !path || !handler) return false;
+
+    char* path_copy = strdup(path);
+    if(!path_copy) return false;
+
+    char* saveptr;
+    char* segment = strtok_r(path_copy,"/",&saveptr);
+    TrieNode* current = root;
+
+    while(segment){
+        bool is_param = (segment[0] == ':');
+        TrieNode* target = is_param ? &current->param_child : &current->children;
+
+        //search for existing nodes
+        bool found = false;
+        for(size_t i = 0; i < current->child_count; i++){
+            if(strcmp(current->children[i].segment, segment) == 0){
+                current = &current->children[i];
+                found = true;
+                break;
+            }
+        }
+
+        //create new node if needed
+        if(!found){
+            TrieNode* new_node = trie_node_new(segment);
+            if(!new_node){
+                free(path_copy);
+                return false;
+            }
+
+            if(is_param){
+                *target = new_node;
+            } else {
+                current->children = realloc(current->children, (current->child_count + 1)*sizeof(TrieNode));
+
+                if(!current->children){
+                    free(new_node->segment);
+                    free(new_node);
+                    free(path_copy);
+                    return false;
+                }
+                current->children[current->child_count++] = *new_node;
+                free(new_node);
+            }
+            current = is_param ? *target : &current->children[current->child_count - 1];
+        }
+        segment = strtok_r(NULL,"/",&saveptr);
+    }
+    current->handler = handler;
+    free(path_copy);
+    return true;
+}
+
+
+static bool trie_match(TrieNode* root, const char* path, PathParam* params, size_t* param_count, RouteHandler* out_handler){
+    if(!root || !path || !out_handler) return false;
+
+    char* path_copy = strdup(path);
+    if(!path_copy)return false;
+
+    char* saveptr;
+    char* segment = strtok_r(path_copy,"/",&saveptr);
+    TrieNode* current = root;
+
+    while(segment){
+        //We try exact match first
+        bool found = false;
+        for(size_t i = 0; i < current->child_count; i++){
+            if(strcmp(current->children[i].segment,segment)==0){
+                current = &current->children[i];
+                found = true;
+                break;
+            }
+        }
+        //fall back to parameter match
+        if(!found && current->param_child){
+            if(*param_count < MAX_PARAMS){
+                params[*param_count].name = current->param_child->segment + 1;
+                params[*param_count].value = strdup(segment);
+                (*param_count)++;
+            }
+            current = current->param_child;
+            found = true;
+        }
+
+        if(!found){
+            free(path_copy);
+            return false;
+        }
+
+        segment = strtok_r(NULL,"/",&saveptr);
+    }
+    *out_handler = current->handler;
+    free(path_copy);
+    return true;
 }

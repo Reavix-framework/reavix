@@ -49,6 +49,20 @@ typedef struct Response Response;
 typedef void (*RouteHandler)(const Request* req, Response* res);
 
 
+typedef struct{
+    char* name;
+    char* value;
+}PathParam;
+
+typedef struct TrieNode{
+    char* segment;
+    RouteHandler handler;
+    struct TrieNode* children;
+    struct TrieNode* param_child;
+    size_t child_count;
+} TrieNode;
+
+
 /**
  * Initialize the libreavix router.
  * Must be called before any route registration.
