@@ -1,44 +1,35 @@
+#include "libreavix.h";
+#include "router.h";
 #include <uv.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include "router.h"
 
 uv_loop_t* loop;
+TrieNode route_tree;
 
-void on_connection(uv_stream_t* server, int status){
-    if(status < 0){
-        fprintf(stderr, "Connection error: %s\n", uv_strerror(status));
-        return;
-    }
 
-    client_t* client = malloc(sizeof(client_t));
-    uv_tcp_init(loop, &client->handle);
-
-    if(uv_accept(server, (uv_stream_t*)&client->handle) == 0){
-        uv_read_start((uv_stream_t*)&client->handle, on_alloc, on_read);
-    }else{
-        uv_close((uv_handle_t*)&client->handle, on_close);
-    }
-    
-}
 
 int main(){
-    loop = uv_default_loop();
 
+    //Initialize libreavix
+    if(!reavix_init(100)){
+        REAVIX_LOG(LOG_FATAL,NULL,"Router initialization failed");
+        return 1;
+    }
+
+    //Register routes
+    reavix_route("GET","/api/users",handle_get_users);
+    reavix_route("POST","/api/upload",handle_upload);
+
+    //start libuv event loop
+    loop = uv_default_loop();
     uv_tcp_t server;
     uv_tcp_init(loop, &server);
 
     struct sockaddr_in addr;
-    uv_ip4_addr("0.0.0.0",HTTP_PORT, &addr);
+    uv_ip4_addr("0.0.0.0", 8081, &addr);
+    uv_tcp_bind(&server, (const struct sockaddr*)&addr, 0);
 
-    uv_tcp_bind(&server, (const struct sockaddr*)&addr,0);
-    int r = uv_listen((uv_stream_t*)&server, 128, on_connection);
+    uv_listen((uv_stream_t*)&server, 128, on_new_connection);
+    REAVIX_LOG(LOG_INFO,NULL,"Server running on port 8081");
 
-    if(r){
-        fprintf(stderr, "Listen error: %s\n", uv_strerror(r));
-        return 1;
-    }
-
-    printf("Server running at http://localhost:%d\n", HTTP_PORT);
     return uv_run(loop, UV_RUN_DEFAULT);
 }

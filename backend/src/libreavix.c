@@ -16,6 +16,9 @@ static size_t route_count = 0;
 static size_t route_capacity = 0;
 static pthread_mutex_t route_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+// Define the root node for the trie-based router
+static TrieNode root_node = {0}; //To be replaced later
+
 
 
 /**
@@ -122,18 +125,37 @@ bool reavix_route(const char* method, const char* path, RouteHandler handler) {
  * @return true if a matching route handler was found and invoked; false otherwise
  */
 static bool dispatch_request(const char* method, const char* path, const Request* req, Response* res) {
-    pthread_mutex_lock(&route_mutex);
+    char* trace_id = current_config.enable_tracing ? generate_trace_id() : NULL;
+    reavix_log(LOG_DEBUG,trace_id, "Request: %s %s",method, path);
 
-    for (size_t i = 0; i < route_count; i++) {
-        if (strcmp(routes[i].method, method) == 0 && strcmp(routes[i].path, path) == 0) {
-            RouteHandler route_handler = routes[i].handler;
-            pthread_mutex_unlock(&route_mutex);
-            route_handler(req, res);
-            return true;
+    PathParam path_params[MAX_PARAMS];
+    size_t path_param_count = 0;
+    RouteHandler route_handler = NULL;
+
+    pthread_mutex_lock(&route_mutex);
+    bool is_matched = trie_match(&root_node, path, path_params, &path_param_count, &route_handler);
+    pthread_mutex_unlock(&route_mutex);
+
+    if (is_matched && route_handler) {
+        Request* mutable_req = (Request*)req;
+        mutable_req->_internal.param_names = malloc(path_param_count * sizeof(char*));
+        mutable_req->_internal.param_values = malloc(path_param_count * sizeof(char*));
+
+        for (size_t i = 0; i < path_param_count; i++) {
+            mutable_req->_internal.param_names[i] = path_params[i].name;
+            mutable_req->_internal.param_values[i] = path_params[i].value;
         }
+
+        mutable_req->_internal.param_count = path_param_count;
+
+        route_handler(req, res);
+
+        for (size_t i = 0; i < path_param_count; i++) {
+            free(path_params[i].name);
+        }
+        return true;
     }
 
-    pthread_mutex_unlock(&route_mutex);
     return false;
 }
 
@@ -473,6 +495,17 @@ void response_free(Response* response){
 }
 
 
+/**
+ * Allocates a new TrieNode with the given segment string.
+ *
+ * This function first allocates a new TrieNode structure using calloc. It then
+ * duplicates the given segment string using strdup and assigns it to the
+ * node->segment field. If either of these operations fail, the function returns
+ * NULL. Otherwise, it returns a pointer to the newly allocated node.
+ *
+ * @param segment The string to be used as the segment for the new node.
+ * @return A pointer to the newly allocated TrieNode, or NULL on error.
+ */
 static TrieNode* trie_node_new(const char* segment){
     TrieNode* node = calloc(1,sizeof(TrieNode));
     if(!node) return NULL;
@@ -485,6 +518,18 @@ static TrieNode* trie_node_new(const char* segment){
 }
 
 
+/**
+ * Inserts a route handler into the trie rooted at the given root node.
+ *
+ * This function will allocate new nodes as necessary to represent the path
+ * segments. The handler is stored in the leaf node that represents the last
+ * path segment.
+ *
+ * @param root The root node of the trie.
+ * @param path The path to be inserted.
+ * @param handler The handler to be stored in the leaf node.
+ * @return true if the insertion was successful; false otherwise.
+ */
 static bool trie_insert(TrieNode* root, const char* path, RouteHandler handler){
     if(!root || !path || !handler) return false;
 
@@ -518,7 +563,8 @@ static bool trie_insert(TrieNode* root, const char* path, RouteHandler handler){
             }
 
             if(is_param){
-                *target = new_node;
+                *target = *new_node;
+                free(new_node);
             } else {
                 current->children = realloc(current->children, (current->child_count + 1)*sizeof(TrieNode));
 
@@ -531,7 +577,7 @@ static bool trie_insert(TrieNode* root, const char* path, RouteHandler handler){
                 current->children[current->child_count++] = *new_node;
                 free(new_node);
             }
-            current = is_param ? *target : &current->children[current->child_count - 1];
+            current = is_param ? target : &current->children[current->child_count - 1];
         }
         segment = strtok_r(NULL,"/",&saveptr);
     }
@@ -541,45 +587,195 @@ static bool trie_insert(TrieNode* root, const char* path, RouteHandler handler){
 }
 
 
-static bool trie_match(TrieNode* root, const char* path, PathParam* params, size_t* param_count, RouteHandler* out_handler){
-    if(!root || !path || !out_handler) return false;
+/**
+ * Matches a path against a Trie rooted at the given node.
+ *
+ * This function returns true if the path matches a route in the Trie, and
+ * false otherwise. If a match is found, the handler associated with the
+ * matching route is stored in the location pointed to by out_handler.
+ * Additionally, any path parameters (segments starting with ':') are stored
+ * in the array pointed to by params, and the number of parameters is stored
+ * in the location pointed to by param_count.
+ *
+ * @param root The root node of the Trie.
+ * @param path The path to be matched.
+ * @param params An array to store the path parameters.
+ * @param param_count A pointer to store the number of path parameters.
+ * @param out_handler A pointer to store the handler associated with the
+ *                    matching route.
+ * @return true if a match was found; false otherwise.
+ */
+static bool trie_match(TrieNode* root, const char* path, PathParam params[], size_t* param_count, RouteHandler* out_handler) {
+    if (!root || !path || !out_handler) {
+        return false;
+    }
 
     char* path_copy = strdup(path);
-    if(!path_copy)return false;
+    if (!path_copy) {
+        return false;
+    }
 
-    char* saveptr;
-    char* segment = strtok_r(path_copy,"/",&saveptr);
+    char* saveptr = NULL;
+    char* segment = strtok_r(path_copy, "/", &saveptr);
     TrieNode* current = root;
+    size_t param_index = 0;
 
-    while(segment){
-        //We try exact match first
+    while (segment) {
         bool found = false;
-        for(size_t i = 0; i < current->child_count; i++){
-            if(strcmp(current->children[i].segment,segment)==0){
+        for (size_t i = 0; i < current->child_count; i++) {
+            if (strcmp(current->children[i].segment, segment) == 0) {
                 current = &current->children[i];
                 found = true;
                 break;
             }
         }
-        //fall back to parameter match
-        if(!found && current->param_child){
-            if(*param_count < MAX_PARAMS){
-                params[*param_count].name = current->param_child->segment + 1;
-                params[*param_count].value = strdup(segment);
-                (*param_count)++;
+
+        if (!found && current->param_child) {
+            if (param_index < MAX_PARAMS) {
+                params[param_index].name = current->param_child->segment + 1;
+                params[param_index].value = strdup(segment);
+                param_index++;
             }
             current = current->param_child;
             found = true;
         }
 
-        if(!found){
+        if (!found) {
             free(path_copy);
             return false;
         }
 
-        segment = strtok_r(NULL,"/",&saveptr);
+        segment = strtok_r(NULL, "/", &saveptr);
     }
+
     *out_handler = current->handler;
+    *param_count = param_index;
     free(path_copy);
     return true;
+}
+
+
+
+//Logging functions
+// Can be adjusted later
+#include <time.h>
+#include <stdarg.h>
+
+static LogConfig current_config = {
+    .min_level = LOG_INFO,
+    .enable_tracing = true,
+    .colored_output = true,
+    .custom_handler = NULL
+};
+
+//I think ANSI color codes are the best for this
+static const char* Level_colors[] = {
+    "\x1b[36m", //TRACE (cyan)
+    "\x1b[34m", //DEBUG (blue)
+    "\x1b[32m", //INFO (green)
+    "\x1b[33m", //WARNING (yellow)
+    "\x1b[31m", //ERROR (red)
+    "\x1b[35m"  //FATAL (magenta)
+
+};
+
+void reavix_log(LogLevel level, const char* trace_id, const char* format, ...){
+    if(level < current_config.min_level) return;
+
+    char message[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(message, sizeof(message), format, args);
+    va_end(args);
+
+    //Use custom handler if provided
+    if(current_config.custom_handler){
+        current_config.custom_handler(level, trace_id, message);
+        return;
+    }
+
+    //Default console ouput
+    time_t now = time(NULL);
+    struct tm* tm_info = localtime(&now);
+    char timestamp[20];
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", tm_info);
+
+    const char* level_str = "";
+    switch(level){
+        case LOG_TRACE: level_str = "TRACE"; break;
+        case LOG_DEBUG: level_str = "DEBUG"; break;
+        case LOG_INFO: level_str = "INFO"; break;
+        case LOG_WARNING: level_str = "WARNING"; break;
+        case LOG_ERROR: level_str = "ERROR"; break;
+        case LOG_FATAL: level_str = "FATAL"; break;
+    }
+    if(current_config.colored_output){
+        fprintf(stderr, "%s %s%-5s\x1b[0m \x1b[90m%s\x1b[0m %s\n", timestamp,Level_colors[level], level_str, trace_id ? trace_id : "-", message);
+    }else{
+        fprintf(stderr, "%s %-5s %s %s\n", timestamp, level_str,trace_id ? trace_id : "-", message);
+    }
+}
+
+
+/**
+ * Generates a UUID-like trace ID. This is used to uniquely identify requests
+ * as they pass through the system.
+ *
+ * The generated ID is a 36-character string in the format:
+ * XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+ *
+ * @return A pointer to the generated trace ID. This memory must be freed by
+ *         the caller when it is no longer needed.
+ */
+static char* generate_trace_id(void) {
+    const char charset[] = "0123456789abcdef";
+    char* id = malloc(37);
+    if (!id) {
+        return NULL;
+    }
+
+    // Generate the trace ID
+    for (int i = 0; i < 36; ++i) {
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            // Hyphens at the standard UUID positions
+            id[i] = '-';
+        } else {
+            // Random characters from the charset
+            id[i] = charset[rand() % (sizeof(charset) - 1)];
+        }
+    }
+
+    // Null-terminate the string
+    id[36] = '\0';
+    return id;
+}
+
+#include <sys/time.h>
+
+void log_metrics(const Request* req){
+    RequestMetrics* metrics = (RequestMetrics*)req->_internal.metrics;
+    if(!metrics) return;
+
+    struct timeval end_time;
+    gettimeofday(&end_time, NULL);
+
+    double latency = (end_time.tv_sec - metrics->start_time.tv_sec) * 1000.0;
+    latency += (end_time.tv_sec - metrics->start_time.tv_sec) / 1000.0;
+
+    reavix_log(LOG_INFO,req->_internal.trace_id, "Metrics: %.2fms | %zuKB | Req#%",latency,metrics->memory_usage/1024, metrics->requests_handled);
+}
+
+/**
+ * Configures the logging system with a new log configuration.
+ * 
+ * This function updates the current logging configuration, which affects
+ * how logging messages are processed and displayed. The configuration
+ * includes settings such as minimum log level, whether tracing is enabled,
+ * whether to use colored output, and any custom log handler.
+ *
+ * @param config The new log configuration to apply.
+ */
+
+void reavix_log_configure(LogConfig config){
+    current_config = config;
 }

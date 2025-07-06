@@ -21,6 +21,8 @@ typedef struct Request {
         const char** param_names;
         const char** param_values;
         size_t param_count;
+        RequestMetrics* metrics;
+        char* trace_id;
     }_internal;
 };
 
@@ -34,12 +36,39 @@ typedef struct Response{
         const char** header_values;
         size_t header_count;
         uv_stream_t* client;
+        RequestMetrics* metrics;
     } _internal;
 } Response;
 
 //Forward declarations
 typedef struct Request Request;
 typedef struct Response Response;
+
+typedef enum{
+    LOG_TRACE,
+    LOG_DEBUG,
+    LOG_INFO,
+    LOG_WARNING,
+    LOG_ERROR,
+    LOG_FATAL
+} LogLevel;
+
+//Log callback signature
+typedef void (*LogHandler)(LogLevel level, const char* message, const char* trace_id);
+
+//configuration structure
+typedef struct{
+    LogLevel min_level;
+    bool enable_tracing;
+    bool colored_output;
+    LogHandler custom_handler;
+} LogConfig;
+
+typedef struct{
+    struct timeval start_time;
+    size_t memory_usage;
+    uint64_t requests_handled;
+} RequestMetrics;
 
 /**
  * Route handler signature
