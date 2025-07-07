@@ -193,3 +193,11 @@ export function getReavixClient(config?: ReavixConfig): ReavixClient {
   }
   return globalInstance;
 }
+
+export type {
+  ReavixConfig,
+  RequestOptions,
+  Response,
+  EventCallback,
+  EventDefinition,
+};

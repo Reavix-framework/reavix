@@ -40,6 +40,7 @@ export type RequestOptions = {
   params?: Record<string, string | number | boolean>;
   body?: unknown;
   timeout?: number;
+  signal?: AbortSignal;
 };
 
 export type Response<T = unknown> = {
@@ -69,7 +70,6 @@ export type EventHandler<T = unknown> = {
   options: SubscriptionOptions;
   onceCalled: boolean;
 };
-
 
 /**
  * Event Emitter interface
