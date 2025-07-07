@@ -16,9 +16,23 @@ export default defineConfig({
       entry: "src/index.ts",
       name: "ReavixClient",
       fileName: (format) => {
-        if (format === "es") return "index.js"                                                       nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn                                                       mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm
-        if (format === "cjs") return "index.cjs"
+        if (format === "es") return "index.js";
+        if (format === "cjs") return "index.cjs";
+        return `index.${format}.js`;
+      },
+      formats: ["es", "cjs"],
+    },
+    rollupOptions: {
+      external: ["react", "react-dom"],
+      output: {
+        globals: {
+          react: "React",
+          "react-dom": "ReactDom",
+        },
       },
     },
+    sourcemap: true,
+    minify: true,
+    target: "es2022",
   },
 });
