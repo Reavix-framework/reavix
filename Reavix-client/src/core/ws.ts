@@ -1,15 +1,15 @@
-import type { ReavixConfig, EventCallback } from "./types";
-
-type Subscription<T = unknown> = {
-  eventName: string;
-  callback: EventCallback<T>;
-};
-
+import type {
+  ReavixConfig,
+  EventCallback,
+  EventHandler,
+  EventDefinition,
+  SubscriptionOptions,
+} from "./types";
+import { EventValidator } from "./validator";
 
 export class WebSocketClient {
   private config: Required<ReavixConfig>;
   private socket: WebSocket | null = null;
-  private subscriptions: Subscription<unknown>[] = [];
   private reconnectAttempts = 0;
   private reconnectTimeout: number | null = null;
   private heartbeatInterval: number | null = null;
@@ -18,6 +18,8 @@ export class WebSocketClient {
     resolve: () => void;
     reject: (err: Error) => void;
   }> = [];
+  private validator: EventValidator;
+  private eventHandlers: Map<string, EventHandler<unknown>[]> = new Map();
 
   constructor(config: ReavixConfig) {
     this.config = {
@@ -37,6 +39,7 @@ export class WebSocketClient {
     if (this.config.wsURL) {
       this.connect();
     }
+    this.validator = new EventValidator();
   }
 
   /**
@@ -76,16 +79,7 @@ export class WebSocketClient {
         }
       };
 
-      this.socket.onmessage = (event) => {
-        try {
-          const { event: eventName, data } = JSON.parse(event.data);
-          this.subscriptions
-            .filter((sub) => sub.eventName === eventName)
-            .forEach((sub) => sub.callback(data));
-        } catch (err) {
-          console.error(`[REAVIX] Failed to parse WebSocket message:`, err);
-        }
-      };
+      this.socket.onmessage = this.handleIncomingMessage.bind(this);
 
       this.socket.onclose = () => {
         this.stopHeartbeat();
@@ -202,22 +196,99 @@ export class WebSocketClient {
     }
   }
 
-  //This needs attention, not good for now
-  on<T = unknown>(eventName: string, callback: EventCallback<T>): () => void {
-    const subscription: Subscription<unknown> = {
-      eventName,
-      callback: callback as EventCallback<unknown>, // cast is safe if you're in control
+  private handleIncomingMessage(event: MessageEvent): void {
+    try {
+      const { event: eventName, data } = JSON.parse(event.data);
+
+      //skip heartbat messages
+      if (eventName === "__heartbeat__") return;
+
+      const { valid, error } = this.validator.validate(eventName, data);
+
+      if (!valid) {
+        console.error(`[REAVIX] Invalid message:`, error);
+        return;
+      }
+
+      const handlers: EventHandler[] = [];
+
+      if (this.eventHandlers.has(eventName)) {
+        handlers.push(...this.eventHandlers.get(eventName)!);
+      }
+
+      for (const [pattern, patternhandlers] of this.eventHandlers.entries()) {
+        if (pattern.includes("*")) {
+          const regexPattern = pattern.replace(/\*/g, ".*");
+          if (new RegExp(`^${regexPattern}$`).test(eventName)) {
+            handlers.push(...patternhandlers);
+          }
+        }
+      }
+
+      //call handlers
+      handlers.forEach((handler) => {
+        if (handler.options.once) {
+          if (!handler.onceCalled) {
+            handler.onceCalled = true;
+          }
+        } else {
+          handler.callback(data);
+        }
+      });
+
+      //clean up 'once' handlers
+      this.eventHandlers.forEach((handlers, name) => {
+        const remaining = handlers.filter(
+          (h) => !(h.options.once && h.onceCalled)
+        );
+        this.eventHandlers.set(name, remaining);
+      });
+    } catch (err) {
+      console.error(`[REAVIX] failed to process message`, err);
+    }
+  }
+  /**
+   * Registers an event handler for the given event name.
+   *
+   * @param eventName - The name of the event to listen for.
+   * @param callback - The function to call when the event is emitted.
+   * @param options - Options for the event handler.
+   * @returns A function that can be used to remove the event handler.
+   */
+  on<T = unknown>(
+    eventName: string,
+    callback: EventCallback<T>,
+    options: SubscriptionOptions = {}
+  ): () => void {
+    const handler: EventHandler<unknown> = {
+      callback: callback as EventCallback<unknown>,
+      options,
+      onceCalled: false,
     };
 
-    this.subscriptions.push(subscription);
+    if (!this.eventHandlers.has(eventName)) {
+      this.eventHandlers.set(eventName, []);
+    }
 
-    return () => {
-      this.subscriptions = this.subscriptions.filter(
-        (sub) => sub !== subscription
-      );
-    };
+    this.eventHandlers.get(eventName)!.push(handler);
+
+    return () => this.off(eventName, callback as EventCallback<unknown>);
   }
 
+  off(eventName: string, callback?: EventCallback): void {
+    if (!this.eventHandlers.has(eventName)) return;
+
+    if (callback) {
+      const handlers = this.eventHandlers
+        .get(eventName)
+        ?.filter((h) => h.callback !== callback);
+      if (handlers) {
+        this.eventHandlers.set(eventName, handlers);
+      }
+    } else {
+      this.eventHandlers.delete(eventName);
+    }
+  }
   /**
    * Sends a message to the WebSocket server.
    *
@@ -314,5 +385,19 @@ export class WebSocketClient {
     if (this.config.wsURL !== oldWsURL && this.config.wsURL) {
       this.connect();
     }
+  }
+
+  /**
+   * Registers multiple event definitions with the WebSocket client's validator.
+   *
+   * This method updates the internal event validation manager with the provided
+   * array of event definitions. Each event definition includes the event name,
+   * optional payload validation schema, and an optional guard function.
+   *
+   * @param definitions - An array of event definitions to register with the validator.
+   */
+
+  registerEvents(definitions: EventDefinition[]): void {
+    this.validator.register(definitions);
   }
 }

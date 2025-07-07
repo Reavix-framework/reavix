@@ -1,16 +1,19 @@
 import { HTTPClient } from "./http";
 import { WebSocketClient } from "./ws";
+import { TopicManager } from "./topics";
 import type {
   ReavixConfig,
   RequestOptions,
   Response,
   EventCallback,
+  EventDefinition,
 } from "./types";
 
 export class ReavixClient {
   private http: HTTPClient;
   private ws: WebSocketClient;
   private config: Required<ReavixConfig>;
+  private topics: TopicManager;
 
   constructor(config: ReavixConfig = {}) {
     this.config = {
@@ -28,6 +31,12 @@ export class ReavixClient {
     };
     this.http = new HTTPClient(this.config);
     this.ws = new WebSocketClient(this.config);
+    this.topics = new TopicManager(this.ws);
+
+    //Handle topic messages
+    this.ws.on("topic", (message: { topic: string; data: unknown }) => {
+      this.topics.handleMessage(message.topic, message.data);
+    });
   }
 
   /**
@@ -128,6 +137,45 @@ export class ReavixClient {
   disconnect(): void {
     this.ws.disconnect();
   }
+
+  /**
+   * Registers multiple event definitions.
+   *
+   * @param {EventDefinition[]} definitions - An array of event definitions to register.
+   */
+  registerEvents(definitions: EventDefinition[]): void {
+    this.ws.registerEvents(definitions);
+  }
+
+  /**
+   * Subscribes to a topic.
+   *
+   * If the topic has not been subscribed to yet, this will send a subscription
+   * request to the server.
+   *
+   * @param {string} topic - The topic to subscribe to
+   * @param {(payload: T) => void} callback - The callback to call when a message is received
+   * @returns {() => void} An unsubscribe function
+   */
+  subscribe<T = unknown>(
+    topic: string,
+    callback: (payload: T) => void
+  ): () => void {
+    return this.topics.subscribe(topic, callback);
+  }
+
+  /**
+   * Unsubscribes from a topic.
+   *
+   * If a callback is provided, only the specific callback will be unsubscribed,
+   * otherwise all callbacks for the topic will be unsubscribed.
+   *
+   * @param {string} topic - The topic to unsubscribe from
+   * @param {Function} [callback] - The callback to unsubscribe, if not provided all will be unsubscribed
+   */
+  unsubscribe(topic: string, callback?: Function): void {
+    this.topics.unsubscribe(topic, callback);
+  }
 }
 //Global instance
 let globalInstance: ReavixClient | null = null;
@@ -141,7 +189,7 @@ export function getReavixClient(config?: ReavixConfig): ReavixClient {
     }
     globalInstance = new ReavixClient(config);
   } else if (config) {
-      globalInstance.updateConfig(config);
+    globalInstance.updateConfig(config);
   }
-    return globalInstance;
+  return globalInstance;
 }

@@ -48,4 +48,50 @@ export type Response<T = unknown> = {
   headers: Record<string, string>;
 };
 
-export type EventCallback<T = unknown> = (payload: T) => void;
+/**
+ * Event subscription options
+ */
+export type SubscriptionOptions = {
+  /**Only trigger callback once */
+  once?: boolean;
+
+  /**Custom validator for payload */
+  validate?: (payload: unknown) => boolean;
+};
+
+/**
+ * Event handler with metadata
+ */
+export type EventCallback<T = unknown> = (data: T) => void;
+
+export type EventHandler<T = unknown> = {
+  callback: EventCallback<T>;
+  options: SubscriptionOptions;
+  onceCalled: boolean;
+};
+
+
+/**
+ * Event Emitter interface
+ */
+export interface EventEmitter {
+  on<T = unknown>(
+    eventName: string,
+    callback: EventCallback<T>,
+    options?: SubscriptionOptions
+  ): () => void;
+  emit(eventName: string, data: unknown): Promise<void>;
+  off(eventName: string, callback?: EventCallback): void;
+}
+
+/**Validated event definition */
+export type EventDefinition<T = unknown> = {
+  /**Event name pattern (support wildcards) */
+  name: string;
+
+  /**Type guard for payload validation */
+  guard?: (payload: unknown) => payload is T;
+
+  /**JSON schema for validation */
+  schema?: unknown;
+};
