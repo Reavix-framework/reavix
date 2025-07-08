@@ -2,6 +2,8 @@
  * Core types for Reavix Client SDK
  */
 
+export type HttpMethod = "GET" | "PUT" | "POST" | "PATCH" | "DELETE";
+
 export type ReavixConfig = {
   /** Base URL for HTTP requests */
   baseURL?: string;
@@ -32,21 +34,25 @@ export type ReavixConfig = {
     /**Exponential backoff factor */
     backoffFactor?: number;
   };
+  /**Allowed origins for cross-origin requests */
+  allowedOrigins?: string[];
 };
 
-export type RequestOptions = {
-  method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+export type RequestOption = {
+  method?: HttpMethod;
   headers?: Record<string, string>;
   params?: Record<string, string | number | boolean>;
   body?: unknown;
   timeout?: number;
   signal?: AbortSignal;
+  retry?: RetryPolicy;
 };
 
 export type Response<T = unknown> = {
   status: number;
   data: T;
   headers: Record<string, string>;
+  retries?: number;
 };
 
 /**
@@ -95,3 +101,56 @@ export type EventDefinition<T = unknown> = {
   /**JSON schema for validation */
   schema?: unknown;
 };
+
+export interface RetryPolicy {
+  /**Number of retry attempts */
+  attempts?: number;
+
+  /** Base delay between retries in ms */
+  delay?: number;
+
+  /**Maximum delay between retries in ms */
+  maxDelay?: number;
+
+  /**Condition for retrying */
+  retryIf?: (error: unknown) => boolean;
+}
+
+export interface EventMap {
+  //default events
+  connected: void;
+  disconnected: { reason: string };
+  error: Error;
+  //Allow custom events
+  [key: string]: unknown;
+}
+
+export interface TypedEventEmitter<Events extends EventMap> {
+  on<Event extends keyof Events>(
+    event: Event,
+    callback: (payload: Events[Event]) => void,
+    options?: SubscriptionOptions
+  ): () => void;
+  emit<Event extends keyof Events>(
+    event: Event,
+    payload: Events[Event]
+  ): Promise<void>;
+}
+
+
+export interface ReavixResponse<T = unknown>{
+  status: number
+  data: T
+  headers: Record<string, string>
+  retries?:number
+}
+
+export interface Reavixrequest<T = unknown>{
+  endpoint: string
+  method?: HttpMethod
+  param?: Record<string, string | number | boolean>
+  body?: T
+  headers?: Record<string, string>
+  timeout?: number
+  retries?:RetryPolicy
+}

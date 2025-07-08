@@ -1,21 +1,39 @@
 import { HTTPClient } from "./http";
 import { WebSocketClient } from "./ws";
 import { TopicManager } from "./topics";
+import { CsrfManager } from "./secure/csrf";
+import { CorsEnforcer } from "./secure/cors";
+import { PermissionValidator } from "./secure/permissions";
+import { SecureWebSocketClient } from "./secure/websocket";
 import type {
   ReavixConfig,
-  RequestOptions,
   Response,
   EventCallback,
   EventDefinition,
+  EventMap,
+  TypedEventEmitter,
+  Reavixrequest,
+  ReavixResponse,
+  SubscriptionOptions,
 } from "./types";
+import { debug } from "./debug";
 
-export class ReavixClient {
+export class ReavixClient<Events extends EventMap = EventMap>
+  implements TypedEventEmitter<Events>
+{
   private http: HTTPClient;
   private ws: WebSocketClient;
   private config: Required<ReavixConfig>;
   private topics: TopicManager;
+  private csrfManager: CsrfManager;
+  private corsEnforcer: CorsEnforcer;
+  private permissionValidator: PermissionValidator;
+  private debug = debug;
 
   constructor(config: ReavixConfig = {}) {
+    if (config.debug) {
+      this.debug.enable();
+    }
     this.config = {
       baseURL: config.baseURL || "",
       wsURL: config.wsURL || this.getWsUrl(config.baseURL),
@@ -28,15 +46,48 @@ export class ReavixClient {
         maxAttempts: config.reconnect?.maxAttempts ?? 5,
         backoffFactor: config.reconnect?.backoffFactor ?? 2,
       },
+      allowedOrigins: config.allowedOrigins || [],
     };
     this.http = new HTTPClient(this.config);
-    this.ws = new WebSocketClient(this.config);
+
+    this.csrfManager = new CsrfManager();
+    this.corsEnforcer = new CorsEnforcer({
+      allowedOrigins: config.allowedOrigins || [
+        config.baseURL || window.location.origin,
+      ],
+      allowCredentials: true,
+    });
+    this.permissionValidator = new PermissionValidator();
+
+    this.ws = new SecureWebSocketClient(this.config, this.csrfManager);
     this.topics = new TopicManager(this.ws);
+
+    this.initializeSecurity();
 
     //Handle topic messages
     this.ws.on("topic", (message: { topic: string; data: unknown }) => {
       this.topics.handleMessage(message.topic, message.data);
     });
+  }
+
+  /**
+   * Initializes security features for the Reavix client.
+   *
+   * This method performs asynchronous initialization of essential security
+   * components, including CSRF protection and permission validation. It
+   * concurrently initializes the CSRF manager and loads permissions from the
+   * backend.
+   *
+   * @returns {Promise<void>} A Promise that resolves when all security
+   * initializations are complete.
+   */
+
+  private async initializeSecurity(): Promise<void> {
+    await Promise.all([
+      this.csrfManager.initialize(this),
+      this,
+      this.permissionValidator.loadPermissions(this),
+    ]);
   }
 
   /**
@@ -55,17 +106,44 @@ export class ReavixClient {
   }
 
   /**
-   * Send a request to the HTTP server.
+   * Makes a request to the backend with security features enabled.
    *
-   * @param {string} endpoint - The path to the endpoint (e.g. "/users/:id").
-   * @param {RequestOptions} [options] - The request options.
-   * @returns {Promise<Response<T>>} The response.
+   * This method performs a request to the given endpoint with the given options,
+   * but also applies security features such as CSRF protection and permission
+   * validation. If the request is not permitted according to the loaded
+   * permissions, an error is thrown. Also, the response is validated for a new
+   * CSRF token.
+   *
+   * @param {string} endpoint - The endpoint URL to send the request to.
+   * @param {RequestOptions} [options] - Optional request configuration.
+   * @returns {Promise<Response<T>>} A Promise that resolves with the response
+   * data.
    */
-  request<T = unknown>(
+  async request<Response, payload>(
     endpoint: string,
-    options?: RequestOptions
-  ): Promise<Response<T>> {
-    return this.http.request(endpoint, options);
+    options: Reavixrequest<payload>
+  ): Promise<ReavixResponse<Response>> {
+    this.debug.log(`request:start`, options);
+    // Check permissions
+    const method = options.method || "GET";
+    if (!this.permissionValidator.isPermitted(method, endpoint)) {
+      throw new Error(`Operation not permitted: ${method} ${endpoint}`);
+    }
+
+    // Apply security headers
+    const headers = this.csrfManager.protectRequest(options.headers || {});
+    const secureHeaders = this.corsEnforcer.applyHeaders(
+      headers,
+      window.location.origin
+    );
+
+    const response = await this.http.request(endpoint, {
+      ...options,
+      headers: secureHeaders,
+    });
+
+    this.csrfManager.validateResponse(response);
+    return response as ReavixResponse<Response>;
   }
 
   /**
@@ -76,25 +154,19 @@ export class ReavixClient {
    * @returns {() => void} A function that can be called to unsubscribe from the event.
    */
 
-  on<T = unknown>(eventName: string, callback: EventCallback<T>): () => void {
-    return this.ws.on(eventName, callback);
+  on<Event extends keyof Events>(
+    eventName: Event,
+    callback: (payload: Events[Event]) => void,
+    options?: SubscriptionOptions
+  ): () => void {
+    return this.ws.on(String(eventName), callback, options);
   }
 
-  /**
-   * Emits a specified event to the WebSocket server with an associated payload.
-   *
-   * If the WebSocket connection is open, this method sends the event immediately.
-   * If the connection is not open and reconnect is enabled, the event is queued
-   * until the connection is re-established.
-   *
-   * @param {string} eventName - The name of the event to emit.
-   * @param {unknown} payload - The data to send with the event.
-   * @returns {Promise<void>} A Promise that resolves if the message is sent successfully,
-   * or rejects with an error if the sending fails.
-   */
-
-  emit(eventName: string, payload: unknown): Promise<void> {
-    return this.ws.emit(eventName, payload);
+  emit<Event extends keyof Events>(
+    eventName: Event,
+    payload: Events[Event]
+  ): Promise<void> {
+    return this.ws.emit(String(eventName), payload);
   }
 
   /**
@@ -196,7 +268,6 @@ export function getReavixClient(config?: ReavixConfig): ReavixClient {
 
 export type {
   ReavixConfig,
-  RequestOptions,
   Response,
   EventCallback,
   EventDefinition,
