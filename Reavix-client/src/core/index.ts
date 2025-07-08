@@ -121,17 +121,17 @@ export class ReavixClient<Events extends EventMap = EventMap>
    */
   async request<Response, payload>(
     endpoint: string,
-    options: Reavixrequest<payload>
+    options?: Reavixrequest<payload>
   ): Promise<ReavixResponse<Response>> {
     this.debug.log(`request:start`, options);
     // Check permissions
-    const method = options.method || "GET";
+    const method = options?.method || "GET";
     if (!this.permissionValidator.isPermitted(method, endpoint)) {
       throw new Error(`Operation not permitted: ${method} ${endpoint}`);
     }
 
     // Apply security headers
-    const headers = this.csrfManager.protectRequest(options.headers || {});
+    const headers = this.csrfManager.protectRequest(options?.headers || {});
     const secureHeaders = this.corsEnforcer.applyHeaders(
       headers,
       window.location.origin
@@ -160,6 +160,10 @@ export class ReavixClient<Events extends EventMap = EventMap>
     options?: SubscriptionOptions
   ): () => void {
     return this.ws.on(String(eventName), callback, options);
+  }
+
+  off(eventName: string, callback?: EventCallback): void {
+    return this.ws.off(eventName, callback);
   }
 
   emit<Event extends keyof Events>(
@@ -248,6 +252,39 @@ export class ReavixClient<Events extends EventMap = EventMap>
   unsubscribe(topic: string, callback?: Function): void {
     this.topics.unsubscribe(topic, callback);
   }
+
+  /**
+   * Enables debug logging.
+   *
+   * This will enable debug logging for all internal components of the Reavix
+   * client. This can be useful for debugging purposes, but it is not recommended
+   * to leave it enabled in production.
+   */
+  enableDebug(): void {
+    this.debug.enable();
+  }
+
+  /**
+   * Disables debug logging.
+   *
+   * This will disable debug logging for all internal components of the Reavix
+   * client.
+   */
+  disableDebug(): void {
+    this.debug.disable();
+  }
+
+  /**
+   * Retrieves all debug events.
+   *
+   * This can be useful for debugging purposes, allowing you to access all
+   * debug events that have been logged.
+   *
+   * @returns {DebugEvent[]} An array of all debug events.
+   */
+  getDebugEvents() {
+    return this.debug.getEvents();
+  }
 }
 //Global instance
 let globalInstance: ReavixClient | null = null;
@@ -266,9 +303,4 @@ export function getReavixClient(config?: ReavixConfig): ReavixClient {
   return globalInstance;
 }
 
-export type {
-  ReavixConfig,
-  Response,
-  EventCallback,
-  EventDefinition,
-};
+export type { ReavixConfig, Response, EventCallback, EventDefinition };

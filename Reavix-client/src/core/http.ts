@@ -1,4 +1,5 @@
-import type { ReavixConfig, RequestOptions, Response } from "./types";
+import type { ReavixConfig,RequestOption, Response } from "./types";
+
 
 /**
  * HTTP client for Reavix backend communication
@@ -21,6 +22,7 @@ export class HTTPClient {
         maxAttempts: config.reconnect?.maxAttempts ?? 5,
         backoffFactor: config.reconnect?.backoffFactor ?? 2,
       },
+      allowedOrigins: config.allowedOrigins || [],
     };
   }
 
@@ -47,7 +49,7 @@ export class HTTPClient {
 
   async request<T = unknown>(
     endpoint: string,
-    options: RequestOptions = {}
+    options: RequestOption = {}
   ): Promise<Response<T>> {
     const requestId = `${endpoint}-${Date.now()}`;
     const abortController = new AbortController();

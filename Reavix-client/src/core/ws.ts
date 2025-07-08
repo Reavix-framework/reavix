@@ -34,6 +34,7 @@ export class WebSocketClient {
         maxAttempts: config.reconnect?.maxAttempts ?? 5,
         backoffFactor: config.reconnect?.backoffFactor ?? 2,
       },
+      allowedOrigins: config.allowedOrigins || [],
     };
 
     if (this.config.wsURL) {
